@@ -13,7 +13,7 @@ export default {
       const url = new URL(request.url);
       const path = url.pathname;
       const method = request.method;
-      const host = url.host;
+      const host = request.host;
       const upgradeHeader = request.headers.get("Upgrade");
 
       // ۱. اگر اتصال پروکسی از سمت V2RayNG با وب‌سوکت آمد
@@ -22,7 +22,7 @@ export default {
       }
 
       if (!env.DB) {
-        return new Response(generateErrorPage("خطا: دیتابیس D1 متصل نشده است."), {
+        return new Response(generateErrorPage("خطا: دیتابیس D1 متصل نشده است. لطفا در تنظیمات ورکر، بخش Bindings دیتابیس را با نام DB متصل کنید."), {
           status: 500,
           headers: { "Content-Type": "text/html;charset=UTF-8" }
         });
@@ -41,7 +41,7 @@ export default {
         if (user.protocol === "VLESS") {
           link = `vless://${uUuid}@${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2048#${encodedName}`;
         } else if (user.protocol === "Trojan") {
-          link = `trojan://${uUuid}@${host}:443?security=tls&sni=${host}&type=ws&host=${host}&path=%2F#${encodedName}`;
+          link = `trojan://${uUuid}@${host}:443?security=tls&sni=${host}&type=ws&host=${host}&path=%2F%3Fed%3D2048#${encodedName}`;
         } else {
           const auth = btoa(`chacha20-ietf-poly1305:${uUuid}`);
           link = `ss://${auth}@${host}:443#${encodedName}`;
@@ -93,10 +93,10 @@ export default {
         const { results } = await env.DB.prepare("SELECT * FROM users ORDER BY rowid DESC").all();
         return jsonResponse({
           success: true,
-          users: results,
+          users: results || [],
           metrics: {
-            total: results.length,
-            active: results.filter(u => u.status === 'active').length,
+            total: (results || []).length,
+            active: (results || []).filter(u => u.status === 'active').length,
           }
         });
       }
@@ -156,7 +156,7 @@ export default {
         return jsonResponse({ success: true });
       }
 
-      // نمایش پنل مدیریت لوکس
+      // نمایش پنل مدیریت لوکس شما
       return new Response(getMasterDashboardHtml(host), {
         headers: { "Content-Type": "text/html;charset=UTF-8" }
       });
@@ -184,7 +184,7 @@ async function vlessOverWSHandler(request) {
   let isDns = false;
 
   readableWebSocketStream.pipeTo(new WritableStream({
-    async write(chunk, controller) {
+    async write(chunk) {
       if (isDns && udpStreamWrite) return udpStreamWrite(chunk);
       if (remoteSocketWapper.value) {
         const writer = remoteSocketWapper.value.writable.getWriter();
@@ -203,23 +203,22 @@ async function vlessOverWSHandler(request) {
       const vlessResponseHeader = new Uint8Array([vlessVersion[0], 0]);
       const rawClientData = chunk.slice(rawDataIndex);
       if (isDns) {
-        const { write } = await handleUDPOutBound(webSocket, vlessResponseHeader, log);
+        const { write } = await handleUDPOutBound(webSocket, vlessResponseHeader);
         udpStreamWrite = write;
         udpStreamWrite(rawClientData);
         return;
       }
-      handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader, log);
+      handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader);
     },
   })).catch((err) => { log('readableWebSocketStream pipeTo error', err); });
 
   return new Response(null, { status: 101, webSocket: client });
 }
 
-async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader, log) {
+async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader) {
   async function connectAndWrite(address, port) {
     const tcpSocket = connect({ hostname: address, port: port });
     remoteSocket.value = tcpSocket;
-    log(`connected to ${address}:${port}`);
     const writer = tcpSocket.writable.getWriter();
     await writer.write(rawClientData);
     writer.releaseLock();
@@ -228,13 +227,13 @@ async function handleTCPOutBound(remoteSocket, addressRemote, portRemote, rawCli
   async function retry() {
     const tcpSocket = await connectAndWrite(proxyIP || addressRemote, portRemote);
     tcpSocket.closed.catch(() => {}).finally(() => { safeCloseWebSocket(webSocket); });
-    remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, null, log);
+    remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, null);
   }
   const tcpSocket = await connectAndWrite(addressRemote, portRemote);
-  remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, retry, log);
+  remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, retry);
 }
 
-function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
+function makeReadableWebSocketStream(webSocketServer, earlyDataHeader) {
   let readableStreamCancel = false;
   return new ReadableStream({
     start(controller) {
@@ -250,7 +249,7 @@ function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
       if (error) controller.error(error);
       else if (earlyData) controller.enqueue(earlyData);
     },
-    cancel(reason) {
+    cancel() {
       if (readableStreamCancel) return;
       readableStreamCancel = true;
       safeCloseWebSocket(webSocketServer);
@@ -302,13 +301,13 @@ function processVlessHeader(vlessBuffer, userID) {
   return { hasError: false, addressRemote: addressValue, addressType, portRemote, rawDataIndex: addressValueIndex + addressLength, vlessVersion: version, isUDP };
 }
 
-async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, retry, log) {
+async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, retry) {
   let vlessHeader = vlessResponseHeader;
   let hasIncomingData = false;
   await remoteSocket.readable.pipeTo(new WritableStream({
-    async write(chunk, controller) {
+    async write(chunk) {
       hasIncomingData = true;
-      if (webSocket.readyState !== WS_READY_STATE_OPEN) controller.error('ws closed');
+      if (webSocket.readyState !== WS_READY_STATE_OPEN) return;
       if (vlessHeader) {
         webSocket.send(await new Blob([vlessHeader, chunk]).arrayBuffer());
         vlessHeader = null;
@@ -350,7 +349,7 @@ function stringify(arr, offset = 0) {
   return uuid;
 }
 
-async function handleUDPOutBound(webSocket, vlessResponseHeader, log) {
+async function handleUDPOutBound(webSocket, vlessResponseHeader) {
   let isVlessHeaderSent = false;
   const transformStream = new TransformStream({
     transform(chunk, controller) {
