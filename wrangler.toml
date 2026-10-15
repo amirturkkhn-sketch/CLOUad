@@ -2,6 +2,7 @@ name = "king-config-panel"
 main = "index.js"
 compatibility_date = "2026-03-01"
 
-[d1_databases]
+[[d1_databases]]
+binding = "DB"
 database_name = "king-db"
 database_id = "6cc7faea-b60b-4b08-b324-0107df38194e"
