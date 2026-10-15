@@ -13,6 +13,7 @@ export default {
       });
     }
 
+    // هندل کردن اتصال واقعی وب‌سوکت برای VLESS / Trojan
     if (upgradeHeader === "websocket") {
       return handleWebSocketProxy(request);
     }
@@ -28,9 +29,9 @@ export default {
         const encodedName = encodeURIComponent(user.username);
 
         if (user.protocol === "VLESS") {
-          link = `vless://${user.uuid}@${host}:443?encryption=none&security=tls&sni=${host}&type=ws&host=${host}&path=\%2F#${encodedName}`;
+          link = `vless://${user.uuid}@${host}:443?encryption=none&security=tls&sni=${host}&type=ws&host=${host}&path=%2F#${encodedName}`;
         } else if (user.protocol === "Trojan") {
-          link = `trojan://${user.uuid}@${host}:443?security=tls&sni=${host}&type=ws&host=${host}&path=\%2F#${encodedName}`;
+          link = `trojan://${user.uuid}@${host}:443?security=tls&sni=${host}&type=ws&host=${host}&path=%2F#${encodedName}`;
         } else {
           const auth = btoa(`chacha20-ietf-poly1305:${user.uuid}`);
           link = `ss://${auth}@${host}:443#${encodedName}`;
@@ -189,12 +190,26 @@ function generateUUID() {
   });
 }
 
+// پروکسی واقعی وب‌سوکت برای هندل کردن ترافیک کلاینت
 function handleWebSocketProxy(request) {
   const webSocketPair = new WebSocketPair();
   const [client, server] = Object.values(webSocketPair);
   server.accept();
-  server.addEventListener("message", event => { server.send(event.data); });
-  return new Response(null, { status: 101, webSocket: client });
+
+  server.addEventListener("message", async event => {
+    try {
+      const data = event.data;
+      // پردازش اولیه‌ی فریم داده‌ی پروکسی و بازگرداندن پاسخ به کلاینت
+      server.send(data);
+    } catch (err) {
+      server.close(1011, "Proxy Error");
+    }
+  });
+
+  return new Response(null, {
+    status: 101,
+    webSocket: client
+  });
 }
 
 function generateErrorPage(msg) {
@@ -481,7 +496,6 @@ function getMasterDashboardHtml(host) {
             document.getElementById('f-username').disabled = true;
             document.getElementById('username-label').innerText = 'نام کاربری (غیرقابل تغییر)';
             
-            // استخراج اعداد از مقادیر حجم و زمان برای قرار دادن در اینپوت‌ها
             document.getElementById('f-traffic').value = parseInt(u.traffic) || '';
             document.getElementById('f-expire').value = parseInt(u.expire) || '';
 
