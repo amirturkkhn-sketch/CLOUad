@@ -1,0 +1,7 @@
+name = "king-config-panel"
+main = "index.js"
+compatibility_date = "2026-03-01"
+
+[d1_databases]
+database_name = "king-db"
+database_id = "کد_دیتابیس_که_کپی_کردید"
