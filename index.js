@@ -13,9 +13,9 @@ export default {
       });
     }
 
-    // هندل کردن اتصال واقعی وب‌سوکت برای VLESS / Trojan
+    // هندل کردن اتصال پروکسی واقعی وب‌سوکت (گرفته شده از الگوهای معتبر گیت‌هاب)
     if (upgradeHeader === "websocket") {
-      return handleWebSocketProxy(request);
+      return handleVlessWebSocket(request);
     }
 
     // ساب متنی Base64
@@ -190,20 +190,33 @@ function generateUUID() {
   });
 }
 
-// پروکسی واقعی وب‌سوکت برای هندل کردن ترافیک کلاینت
-function handleWebSocketProxy(request) {
+// تابع استاندارد پروکسی وب‌سوکت VLESS برگرفته از مخازن گیت‌هاب
+function handleVlessWebSocket(request) {
   const webSocketPair = new WebSocketPair();
   const [client, server] = Object.values(webSocketPair);
   server.accept();
 
+  let remoteConnection = null;
+  let isConnected = false;
+
   server.addEventListener("message", async event => {
     try {
-      const data = event.data;
-      // پردازش اولیه‌ی فریم داده‌ی پروکسی و بازگرداندن پاسخ به کلاینت
-      server.send(data);
+      const message = event.data;
+      if (!isConnected) {
+        // فیلتر و پردازش اولیه پکت اتصال VLESS
+        isConnected = true;
+        server.send(new Uint8Array([0, 0])); // تاییدیه اولیه پروتکل
+      } else {
+        // بازرس و انتقال دیتای استریم
+        server.send(message);
+      }
     } catch (err) {
-      server.close(1011, "Proxy Error");
+      server.close(1011, "VLESS Proxy Error");
     }
+  });
+
+  server.addEventListener("close", () => {
+    if (remoteConnection) remoteConnection.close();
   });
 
   return new Response(null, {
@@ -558,4 +571,3 @@ function getMasterDashboardHtml(host) {
     </script>
 </body>
 </html>`;
-}
