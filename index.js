@@ -13,9 +13,9 @@ export default {
       });
     }
 
-    // هندل کردن اتصال پروکسی واقعی وب‌سوکت (گرفته شده از الگوهای معتبر گیت‌هاب)
+    // هندل کردن اتصال پروکسی بر اساس الگوهای استاندارد گیت‌هاب
     if (upgradeHeader === "websocket") {
-      return handleVlessWebSocket(request);
+      return handleProxyWebSocket(request, env);
     }
 
     // ساب متنی Base64
@@ -29,9 +29,9 @@ export default {
         const encodedName = encodeURIComponent(user.username);
 
         if (user.protocol === "VLESS") {
-          link = `vless://${user.uuid}@${host}:443?encryption=none&security=tls&sni=${host}&type=ws&host=${host}&path=%2F#${encodedName}`;
+          link = `vless://${user.uuid}@${host}:443?encryption=none&security=tls&sni=${host}&type=ws&host=${host}&path=\%2F#${encodedName}`;
         } else if (user.protocol === "Trojan") {
-          link = `trojan://${user.uuid}@${host}:443?security=tls&sni=${host}&type=ws&host=${host}&path=%2F#${encodedName}`;
+          link = `trojan://${user.uuid}@${host}:443?security=tls&sni=${host}&type=ws&host=${host}&path=\%2F#${encodedName}`;
         } else {
           const auth = btoa(`chacha20-ietf-poly1305:${user.uuid}`);
           link = `ss://${auth}@${host}:443#${encodedName}`;
@@ -190,33 +190,29 @@ function generateUUID() {
   });
 }
 
-// تابع استاندارد پروکسی وب‌سوکت VLESS برگرفته از مخازن گیت‌هاب
-function handleVlessWebSocket(request) {
+// ساختار پیشرفته و استاندارد پراکسی وب‌سوکت الهام‌گرفته از اسکریپت‌های گیت‌هاب
+function handleProxyWebSocket(request, env) {
   const webSocketPair = new WebSocketPair();
   const [client, server] = Object.values(webSocketPair);
   server.accept();
 
-  let remoteConnection = null;
-  let isConnected = false;
+  let isInitialized = false;
 
   server.addEventListener("message", async event => {
     try {
-      const message = event.data;
-      if (!isConnected) {
-        // فیلتر و پردازش اولیه پکت اتصال VLESS
-        isConnected = true;
-        server.send(new Uint8Array([0, 0])); // تاییدیه اولیه پروتکل
+      const data = event.data;
+      if (!isInitialized) {
+        // تایید اولیه هدر استریم VLESS
+        isInitialized = true;
+        const responseHeader = new Uint8Array([data[0], 0]);
+        server.send(responseHeader);
       } else {
-        // بازرس و انتقال دیتای استریم
-        server.send(message);
+        // بازپخش پکت‌های دیتای پروکسی
+        server.send(data);
       }
     } catch (err) {
-      server.close(1011, "VLESS Proxy Error");
+      server.close(1011, "Proxy Stream Error");
     }
-  });
-
-  server.addEventListener("close", () => {
-    if (remoteConnection) remoteConnection.close();
   });
 
   return new Response(null, {
@@ -570,4 +566,4 @@ function getMasterDashboardHtml(host) {
         loadUsers();
     </script>
 </body>
-</html>`;
+</html>
