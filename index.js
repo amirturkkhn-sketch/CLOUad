@@ -13,22 +13,22 @@ export default {
       const url = new URL(request.url);
       const path = url.pathname;
       const method = request.method;
-      const host = request.host;
+      const host = url.host;
       const upgradeHeader = request.headers.get("Upgrade");
 
-      // ۱. اگر اتصال پروکسی از سمت V2RayNG با وب‌سوکت آمد
+      // ۱. اگر نرم‌افزار اتصال (مثل V2RayNG) با وب‌سوکت وصل شد
       if (upgradeHeader === "websocket") {
         return await vlessOverWSHandler(request);
       }
 
       if (!env.DB) {
-        return new Response(generateErrorPage("خطا: دیتابیس D1 متصل نشده است. لطفا در تنظیمات ورکر، بخش Bindings دیتابیس را با نام DB متصل کنید."), {
+        return new Response("خطا: دیتابیس D1 متصل نشده است. لطفا در تنظیمات ورکر بخش Bindings را با نام DB تنظیم کنید.", {
           status: 500,
           headers: { "Content-Type": "text/html;charset=UTF-8" }
         });
       }
 
-      // ۲. ساب متنی Base64 برای هر کاربر
+      // ۲. ساب متنی Base64
       if (path.startsWith("/sub/") && method === "GET") {
         const username = path.split("/")[2];
         const user = await env.DB.prepare("SELECT * FROM users WHERE username = ?").bind(username).first();
@@ -41,7 +41,7 @@ export default {
         if (user.protocol === "VLESS") {
           link = `vless://${uUuid}@${host}:443?encryption=none&security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2048#${encodedName}`;
         } else if (user.protocol === "Trojan") {
-          link = `trojan://${uUuid}@${host}:443?security=tls&sni=${host}&type=ws&host=${host}&path=%2F%3Fed%3D2048#${encodedName}`;
+          link = `trojan://${uUuid}@${host}:443?security=tls&sni=${host}&fp=randomized&type=ws&host=${host}&path=%2F%3Fed%3D2048#${encodedName}`;
         } else {
           const auth = btoa(`chacha20-ietf-poly1305:${uUuid}`);
           link = `ss://${auth}@${host}:443#${encodedName}`;
@@ -111,8 +111,8 @@ export default {
         const protocol = body.protocol || "VLESS";
         const traffic = body.traffic ? body.traffic + " GB" : "نامحدود";
         const expire = body.expire ? body.expire + " روز" : "30 روز";
-        const port = body.port || "443";
-        const tls = body.tls || "TLS 1.3";
+        const port = "443";
+        const tls = "TLS 1.3";
         const adblock = body.adblock || "on";
         const adult_block = body.adult_block || "on";
 
@@ -137,8 +137,8 @@ export default {
         const protocol = body.protocol || "VLESS";
         const traffic = body.traffic ? body.traffic + " GB" : "نامحدود";
         const expire = body.expire ? body.expire + " روز" : "30 روز";
-        const port = body.port || "443";
-        const tls = body.tls || "TLS 1.3";
+        const port = "443";
+        const tls = "TLS 1.3";
         const adblock = body.adblock || "on";
         const adult_block = body.adult_block || "on";
 
@@ -156,7 +156,7 @@ export default {
         return jsonResponse({ success: true });
       }
 
-      // نمایش پنل مدیریت لوکس شما
+      // نمایش پنل مدیریت لوکس
       return new Response(getMasterDashboardHtml(host), {
         headers: { "Content-Type": "text/html;charset=UTF-8" }
       });
@@ -167,7 +167,7 @@ export default {
   }
 };
 
-// --- توابع هسته پراکسی EdgeTunnel ---
+// --- توابع هسته پروکسی ---
 async function vlessOverWSHandler(request) {
   const webSocketPair = new WebSocketPair();
   const [client, webSocket] = Object.values(webSocketPair);
@@ -177,7 +177,7 @@ async function vlessOverWSHandler(request) {
   let portWithRandomLog = '';
   const log = (info, event) => { console.log(`[${address}:${portWithRandomLog}] ${info}`, event || ''); };
   const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
-  const readableWebSocketStream = makeReadableWebSocketStream(webSocket, earlyDataHeader, log);
+  const readableWebSocketStream = makeReadableWebSocketStream(webSocket, earlyDataHeader);
 
   let remoteSocketWapper = { value: null };
   let udpStreamWrite = null;
@@ -210,7 +210,7 @@ async function vlessOverWSHandler(request) {
       }
       handleTCPOutBound(remoteSocketWapper, addressRemote, portRemote, rawClientData, webSocket, vlessResponseHeader);
     },
-  })).catch((err) => { log('readableWebSocketStream pipeTo error', err); });
+  })).catch((err) => { log('ws pipe error', err); });
 
   return new Response(null, { status: 101, webSocket: client });
 }
@@ -389,10 +389,6 @@ function generateUUID() {
     var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
     return v.toString(16);
   });
-}
-
-function generateErrorPage(msg) {
-  return `<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8"><title>خطا</title><style>body{background:#030508;color:#fff;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;}.box{background:#0a0e17;border:1px solid #ef4444;padding:30px;border-radius:14px;text-align:center;}h2{color:#ef4444;}</style></head><body><div class="box"><h2>خطا</h2><p>${msg}</p></div></body></html>`;
 }
 
 function generateUserStatusHtml(username, host) {
@@ -695,8 +691,6 @@ function getMasterDashboardHtml(host) {
                 protocol: document.getElementById('f-protocol').value,
                 traffic: document.getElementById('f-traffic').value,
                 expire: document.getElementById('f-expire').value,
-                port: "443",
-                tls: "TLS 1.3",
                 adblock: document.getElementById('f-adblock').checked ? 'on' : 'off',
                 adult_block: document.getElementById('f-adult').checked ? 'on' : 'off'
             };
